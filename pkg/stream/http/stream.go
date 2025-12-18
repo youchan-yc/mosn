@@ -273,6 +273,7 @@ func newClientStreamConnection(ctx context.Context, connection types.ClientConne
 }
 
 func (conn *clientStreamConnection) serve() {
+	totalRespBodySize := 0
 	for {
 		select {
 		case <-conn.requestSent:
@@ -333,7 +334,7 @@ func (conn *clientStreamConnection) serve() {
 
 		// 3. handle response
 		if s.response.Header.ContentLength() == -1 {
-			conn.handleStreamResponse()
+			conn.handleStreamResponse(totalRespBodySize)
 		} else {
 			conn.handleBlockedResponse()
 		}
@@ -357,7 +358,7 @@ func mustSkipContentLength(h *fasthttp.ResponseHeader) bool {
 }
 
 // handleStreamResponse: http stream response
-func (conn *clientStreamConnection) handleStreamResponse() {
+func (conn *clientStreamConnection) handleStreamResponse(totalSize int) {
 	s := conn.stream
 	startStreamResponse := func(cs *clientStream) {
 		header := mosnhttp.ResponseHeader{ResponseHeader: &s.response.Header}
@@ -388,6 +389,8 @@ func (conn *clientStreamConnection) handleStreamResponse() {
 
 	sendStreamResponse := func(cs *clientStream) error {
 		return writeBodyToPipe(conn.br, 0, s.response.Header.ContentLength(), func(data []byte) error {
+			totalSize += len(data)
+			log.Proxy.Errorf(s.ctx, "[stream] [http] [stream response] write response data to downstream, size: %d", len(data))
 			if _, err := cs.recData.Write(data); err != nil {
 				return fmt.Errorf("failed to write to IoBuffer: %w", err)
 
@@ -403,6 +406,7 @@ func (conn *clientStreamConnection) handleStreamResponse() {
 			}
 			cs.recData.CloseWithError(err)
 			// destroy stream
+			log.Proxy.Errorf(s.ctx, "[stream] [http] [stream response] write respons total size: %d", totalSize)
 			cs.stream.DestroyStream()
 		}
 	}

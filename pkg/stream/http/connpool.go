@@ -250,6 +250,8 @@ func (p *connPool) onStreamDestroy(client *activeClient) {
 		p.availableClients = append(p.availableClients, client)
 	}
 	p.clientMux.Unlock()
+	log.DefaultLogger.Errorf("[stream] [http] [connpool] conn returned, Connection = %d, local = %s, remote = %s",
+		client.client.ConnID(), client.host.Connection.LocalAddr(), client.host.Connection.RemoteAddr())
 }
 
 func (p *connPool) onStreamReset(client *activeClient, reason types.StreamResetReason) {
@@ -336,6 +338,8 @@ func (ac *activeClient) OnEvent(event api.ConnectionEvent) {
 func (ac *activeClient) OnDestroyStream() {
 	if !ac.closed && ac.closeConn {
 		ac.client.Close()
+		log.DefaultLogger.Errorf("[stream] [http] [connpool] conn closed, Connection = %d, local = %s, remote = %s",
+			ac.client.ConnID(), ac.host.Connection.LocalAddr(), ac.host.Connection.RemoteAddr())
 	}
 	ac.pool.onStreamDestroy(ac)
 }
