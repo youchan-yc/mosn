@@ -390,7 +390,8 @@ func (conn *clientStreamConnection) handleStreamResponse(totalSize int) {
 	sendStreamResponse := func(cs *clientStream) error {
 		return writeBodyToPipe(conn.br, 0, s.response.Header.ContentLength(), func(data []byte) error {
 			totalSize += len(data)
-			log.Proxy.Errorf(s.ctx, "[stream] [http] [stream response] write response data to downstream, size: %d", len(data))
+			log.Proxy.Errorf(cs.ctx, "[stream] [http] [stream response] write response data to downstream, size: %d, total: %d, local: %s, remote: %s", len(data), totalSize,
+				cs.connection.conn.LocalAddr().String(), cs.connection.conn.RemoteAddr().String())
 			if _, err := cs.recData.Write(data); err != nil {
 				return fmt.Errorf("failed to write to IoBuffer: %w", err)
 
@@ -406,7 +407,8 @@ func (conn *clientStreamConnection) handleStreamResponse(totalSize int) {
 			}
 			cs.recData.CloseWithError(err)
 			// destroy stream
-			log.Proxy.Errorf(s.ctx, "[stream] [http] [stream response] write respons total size: %d", totalSize)
+			log.Proxy.Errorf(cs.ctx, "[stream] [http] [stream response] write respons total size: %d, local: %s, remote: %s", totalSize,
+				cs.connection.conn.LocalAddr().String(), cs.connection.conn.RemoteAddr().String())
 			cs.stream.DestroyStream()
 		}
 	}
