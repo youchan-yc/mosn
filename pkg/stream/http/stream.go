@@ -413,6 +413,7 @@ func (conn *clientStreamConnection) handleStreamResponse(totalSize *int) {
 				log.Proxy.Debugf(cs.ctx, "[stream] [http] [stream response] write respons total size: %d, local: %s, remote: %s", *totalSize,
 					cs.connection.conn.LocalAddr().String(), cs.connection.conn.RemoteAddr().String())
 			}
+			cs.ResetStream(types.StreamLocalReset)
 			cs.stream.DestroyStream()
 		}
 	}
