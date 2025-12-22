@@ -413,25 +413,19 @@ func (conn *clientStreamConnection) handleStreamResponse(totalSize *int) {
 				log.Proxy.Debugf(cs.ctx, "[stream] [http] [stream response] write respons total size: %d, local: %s, remote: %s", *totalSize,
 					cs.connection.conn.LocalAddr().String(), cs.connection.conn.RemoteAddr().String())
 			}
+			// forced to close connection
+			// streaming connections are temporarily not supported for connection reuse
 			cs.ResetStream(types.StreamLocalReset)
 			cs.stream.DestroyStream()
 		}
 	}
 
 	startStreamResponse(s)
-	if err := sendStreamResponse(s); err != nil {
+	var err error
+	if err = sendStreamResponse(s); err != nil {
 		log.Proxy.Errorf(s.ctx, "[stream] [http] [stream response] client stream write buffer: %s", err)
-		reason := conn.resetReason
-		if reason == "" {
-			// if stream conn, we should close conn
-			reason = types.StreamLocalReset
-		}
-		s.ResetStream(reason)
-		finishStreamResponse(s, err)
-		return
-
 	}
-	finishStreamResponse(s, nil)
+	finishStreamResponse(s, err)
 }
 
 // handleBlockedResponse: http blocked response
