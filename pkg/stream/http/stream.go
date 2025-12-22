@@ -423,7 +423,7 @@ func (conn *clientStreamConnection) handleStreamResponse(totalSize *int) {
 	startStreamResponse(s)
 	var err error
 	if err = sendStreamResponse(s); err != nil {
-		log.Proxy.Errorf(s.ctx, "[stream] [http] [stream response] client stream write buffer: %s", err)
+		log.Proxy.Errorf(s.ctx, "[stream] [http] [stream response] client stream write buffer: %s, reset reason: %s", err, conn.resetReason)
 	}
 	finishStreamResponse(s, err)
 }
