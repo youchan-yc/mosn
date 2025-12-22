@@ -273,6 +273,7 @@ func newClientStreamConnection(ctx context.Context, connection types.ClientConne
 }
 
 func (conn *clientStreamConnection) serve() {
+	totalRespBodySize := 0
 	for {
 		select {
 		case <-conn.requestSent:
@@ -333,7 +334,7 @@ func (conn *clientStreamConnection) serve() {
 
 		// 3. handle response
 		if s.response.Header.ContentLength() == -1 {
-			conn.handleStreamResponse()
+			conn.handleStreamResponse(totalRespBodySize)
 		} else {
 			conn.handleBlockedResponse()
 		}
@@ -357,7 +358,7 @@ func mustSkipContentLength(h *fasthttp.ResponseHeader) bool {
 }
 
 // handleStreamResponse: http stream response
-func (conn *clientStreamConnection) handleStreamResponse() {
+func (conn *clientStreamConnection) handleStreamResponse(totalSize int) {
 	s := conn.stream
 	startStreamResponse := func(cs *clientStream) {
 		header := mosnhttp.ResponseHeader{ResponseHeader: &s.response.Header}
@@ -388,6 +389,11 @@ func (conn *clientStreamConnection) handleStreamResponse() {
 
 	sendStreamResponse := func(cs *clientStream) error {
 		return writeBodyToPipe(conn.br, 0, s.response.Header.ContentLength(), func(data []byte) error {
+			totalSize += len(data)
+			if log.DefaultLogger.GetLogLevel() >= log.DEBUG {
+				log.Proxy.Debugf(cs.ctx, "[stream] [http] [stream response] write response data to downstream, size: %d, total: %d, local: %s, remote: %s",
+					len(data), totalSize, cs.connection.conn.LocalAddr().String(), cs.connection.conn.RemoteAddr().String())
+			}
 			if _, err := cs.recData.Write(data); err != nil {
 				return fmt.Errorf("failed to write to IoBuffer: %w", err)
 
@@ -403,6 +409,10 @@ func (conn *clientStreamConnection) handleStreamResponse() {
 			}
 			cs.recData.CloseWithError(err)
 			// destroy stream
+			if log.DefaultLogger.GetLogLevel() >= log.DEBUG {
+				log.Proxy.Debugf(cs.ctx, "[stream] [http] [stream response] write respons total size: %d, local: %s, remote: %s", totalSize,
+					cs.connection.conn.LocalAddr().String(), cs.connection.conn.RemoteAddr().String())
+			}
 			cs.stream.DestroyStream()
 		}
 	}
@@ -412,7 +422,8 @@ func (conn *clientStreamConnection) handleStreamResponse() {
 		log.Proxy.Errorf(s.ctx, "[stream] [http] [stream response] client stream write buffer: %s", err)
 		reason := conn.resetReason
 		if reason == "" {
-			reason = types.StreamRemoteReset
+			// if stream conn, we should close conn
+			reason = types.StreamLocalReset
 		}
 		s.ResetStream(reason)
 		finishStreamResponse(s, err)

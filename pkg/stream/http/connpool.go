@@ -136,6 +136,15 @@ func (p *connPool) getAvailableClient(ctx context.Context) (*activeClient, types
 				// To subtract a signed positive constant value c from x, do AddUint64(&x, ^uint64(c-1)).
 				atomic.AddUint64(&p.totalClientCount, ^uint64(0))
 			}
+			if log.DefaultLogger.GetLogLevel() >= log.DEBUG {
+				if ac != nil {
+					log.DefaultLogger.Debugf("[stream] [http] [connpool] new conn, Connection = %d, local = %s, remote = %s",
+						ac.client.ConnID(), ac.host.Connection.LocalAddr().String(), ac.host.Connection.RemoteAddr().String())
+				} else {
+					log.DefaultLogger.Debugf("[stream] [http] [connpool] new conn is nil, hostname = %s, clusterName = %s, reason= %s",
+						host.Hostname(), host.ClusterInfo().Name(), reason)
+				}
+			}
 			return ac, reason
 		} else {
 			// To subtract a signed positive constant value c from x, do AddUint64(&x, ^uint64(c-1)).
@@ -160,6 +169,10 @@ func (p *connPool) getAvailableClient(ctx context.Context) (*activeClient, types
 		c := p.availableClients[n]
 		p.availableClients[n] = nil
 		p.availableClients = p.availableClients[:n]
+		if log.DefaultLogger.GetLogLevel() >= log.DEBUG {
+			log.DefaultLogger.Debugf("[stream] [http] [connpool] get conn from pool, ConnID = %d, hostname = %s, local = %s, remote = %s",
+				c.client.ConnID(), host.Hostname(), c.host.Connection.LocalAddr().String(), c.host.Connection.RemoteAddr().String())
+		}
 		return c, ""
 	}
 }
@@ -248,6 +261,10 @@ func (p *connPool) onStreamDestroy(client *activeClient) {
 	p.clientMux.Lock()
 	if !client.closed {
 		p.availableClients = append(p.availableClients, client)
+		if log.DefaultLogger.GetLogLevel() >= log.DEBUG {
+			log.DefaultLogger.Debugf("[stream] [http] [connpool] conn returned, ConnID = %d, hostname = %s, local = %s, remote = %s",
+				client.client.ConnID(), host.Hostname(), client.host.Connection.LocalAddr(), client.host.Connection.RemoteAddr())
+		}
 	}
 	p.clientMux.Unlock()
 }
@@ -336,6 +353,10 @@ func (ac *activeClient) OnEvent(event api.ConnectionEvent) {
 func (ac *activeClient) OnDestroyStream() {
 	if !ac.closed && ac.closeConn {
 		ac.client.Close()
+		if log.DefaultLogger.GetLogLevel() >= log.DEBUG {
+			log.DefaultLogger.Debugf("[stream] [http] [connpool] conn closed, Connection = %d, local = %s, remote = %s",
+				ac.client.ConnID(), ac.host.Connection.LocalAddr(), ac.host.Connection.RemoteAddr())
+		}
 	}
 	ac.pool.onStreamDestroy(ac)
 }
