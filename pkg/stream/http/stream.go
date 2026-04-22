@@ -272,6 +272,37 @@ func newClientStreamConnection(ctx context.Context, connection types.ClientConne
 	return csc
 }
 
+// buildDiagnosticInfo extracts key request and connection info for error diagnosis.
+func (conn *clientStreamConnection) buildDiagnosticInfo(s *clientStream) string {
+	connID := uint64(0)
+	upstreamAddr := "unknown"
+	downstreamAddr := "unknown"
+	streamID := uint64(0)
+	reqMethod := "unknown"
+	reqPath := "unknown"
+
+	if conn.conn != nil {
+		connID = conn.conn.ID()
+		if conn.conn.RemoteAddr() != nil {
+			upstreamAddr = conn.conn.RemoteAddr().String()
+		}
+		if conn.conn.LocalAddr() != nil {
+			downstreamAddr = conn.conn.LocalAddr().String()
+		}
+	}
+
+	if s != nil {
+		streamID = s.id
+		if s.request != nil {
+			reqMethod = string(s.request.Header.Method())
+			reqPath = string(s.request.URI().Path())
+		}
+	}
+
+	return fmt.Sprintf("ConnID=%d, UpstreamAddr=%s, DownstreamAddr=%s, ReqMethod=%s, ReqPath=%s, StreamID=%d",
+		connID, upstreamAddr, downstreamAddr, reqMethod, reqPath, streamID)
+}
+
 func (conn *clientStreamConnection) serve() {
 	for {
 		select {
@@ -296,7 +327,7 @@ func (conn *clientStreamConnection) serve() {
 		err := s.response.Header.Read(conn.br)
 		if err != nil {
 			if s != nil {
-				log.Proxy.Errorf(s.connection.context, "[stream] [http] client stream connection wait response header error: %s", err)
+				log.Proxy.Errorf(s.connection.context, "[stream] [http] client stream connection wait response header error: %s | %s", err, conn.buildDiagnosticInfo(s))
 				reason := conn.resetReason
 				if reason == "" {
 					reason = types.StreamRemoteReset
@@ -309,7 +340,7 @@ func (conn *clientStreamConnection) serve() {
 			// Read the next response according to http://www.w3.org/Protocols/rfc2616/rfc2616-sec8.html .
 			if err = s.response.Header.Read(conn.br); err != nil {
 				if s != nil {
-					log.Proxy.Errorf(s.connection.context, "[stream] [http] client stream connection wait response header error(StatusCode=StatusContinue): %s", err)
+					log.Proxy.Errorf(s.connection.context, "[stream] [http] client stream connection wait response header error(StatusCode=StatusContinue): %s | %s", err, conn.buildDiagnosticInfo(s))
 					reason := conn.resetReason
 					if reason == "" {
 						reason = types.StreamRemoteReset
