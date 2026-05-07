@@ -296,11 +296,14 @@ func (conn *clientStreamConnection) serve() {
 		err := s.response.Header.Read(conn.br)
 		if err != nil {
 			if s != nil {
-				log.Proxy.Errorf(s.connection.context, "[stream] [http] client stream connection wait response header error: %s", err)
+				log.Proxy.Errorf(s.connection.context, "[stream] [http] client stream connection wait response header error: %s, Connection = %d, Local Address = %+v, Remote Address = %+v",
+					err, conn.conn.ID(), conn.conn.LocalAddr(), conn.conn.RemoteAddr())
 				reason := conn.resetReason
 				if reason == "" {
 					reason = types.StreamRemoteReset
 				}
+				log.Proxy.Errorf(s.connection.context, "[stream] [http] response header read failed, resetReason = %v, Connection = %d",
+					reason, conn.conn.ID())
 				s.ResetStream(reason)
 			}
 			return
@@ -402,22 +405,42 @@ func (conn *clientStreamConnection) handleStreamResponse() {
 				err = io.EOF
 			}
 			cs.recData.CloseWithError(err)
-			// destroy stream
-			cs.stream.DestroyStream()
+
+			// Check if there is residual data in the upstream connection's read buffer.
+			// If the bufio.Reader has buffered bytes after the chunked response ended,
+			// the connection is polluted (e.g., upstream sent extra data after the final
+			// chunk marker). In this case, reset the stream to close the connection and
+			// prevent connection pool pollution. Otherwise, destroy the stream normally
+			// to allow connection reuse.
+			if conn.br.Buffered() > 0 {
+				if log.Proxy.GetLogLevel() >= log.WARN {
+					log.Proxy.Warnf(cs.ctx, "[stream] [http] [stream response] residual data detected in upstream connection buffer (%d bytes), closing connection to prevent pool pollution, Connection = %d",
+						conn.br.Buffered(), conn.conn.ID())
+				}
+				cs.stream.ResetStream(types.StreamLocalReset)
+			} else {
+				cs.stream.DestroyStream()
+			}
 		}
 	}
 
 	startStreamResponse(s)
 	if err := sendStreamResponse(s); err != nil {
-		log.Proxy.Errorf(s.ctx, "[stream] [http] [stream response] client stream write buffer: %s", err)
+		log.Proxy.Errorf(s.ctx, "[stream] [http] [stream response] client stream write buffer error: %s, Connection = %d", err, conn.conn.ID())
 		reason := conn.resetReason
 		if reason == "" {
 			reason = types.StreamRemoteReset
+		}
+		if log.Proxy.GetLogLevel() >= log.DEBUG {
+			log.Proxy.Debugf(s.ctx, "[stream] [http] [stream response] resetting stream with reason: %v, Connection = %d", reason, conn.conn.ID())
 		}
 		s.ResetStream(reason)
 		finishStreamResponse(s, err)
 		return
 
+	}
+	if log.Proxy.GetLogLevel() >= log.DEBUG {
+		log.Proxy.Debugf(s.ctx, "[stream] [http] [stream response] completed normally, Connection = %d", conn.conn.ID())
 	}
 	finishStreamResponse(s, nil)
 }
@@ -429,7 +452,8 @@ func (conn *clientStreamConnection) handleBlockedResponse() {
 	if !(s.response.SkipBody || mustSkipContentLength(&s.response.Header)) {
 		err := s.response.ReadBody(conn.br, 0)
 		if err != nil {
-			log.Proxy.Errorf(s.connection.context, "[stream] [http] client stream connection wait response error: %s", err)
+			log.Proxy.Errorf(s.connection.context, "[stream] [http] client stream connection wait response body error: %s, Connection = %d, Local Address = %+v, Remote Address = %+v",
+				err, conn.conn.ID(), conn.conn.LocalAddr(), conn.conn.RemoteAddr())
 			reason := conn.resetReason
 			if reason == "" {
 				reason = types.StreamRemoteReset

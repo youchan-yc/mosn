@@ -247,7 +247,16 @@ func (p *connPool) onStreamDestroy(client *activeClient) {
 	// return to pool
 	p.clientMux.Lock()
 	if !client.closed {
+		if log.DefaultLogger.GetLogLevel() >= log.DEBUG {
+			log.DefaultLogger.Debugf("[stream] [http] [connpool] returning connection to available pool, Connection = %d, total available = %d",
+				client.client.ConnID(), len(p.availableClients)+1)
+		}
 		p.availableClients = append(p.availableClients, client)
+	} else {
+		if log.DefaultLogger.GetLogLevel() >= log.DEBUG {
+			log.DefaultLogger.Debugf("[stream] [http] [connpool] connection already closed, skip returning to pool, Connection = %d",
+				client.client.ConnID())
+		}
 	}
 	p.clientMux.Unlock()
 }
@@ -335,17 +344,24 @@ func (ac *activeClient) OnEvent(event api.ConnectionEvent) {
 // types.StreamEventListener
 func (ac *activeClient) OnDestroyStream() {
 	if !ac.closed && ac.closeConn {
+		if log.DefaultLogger.GetLogLevel() >= log.DEBUG {
+			log.DefaultLogger.Debugf("[stream] [http] [connpool] destroy stream, closing connection, Connection = %d, closeConn = %v",
+				ac.client.ConnID(), ac.closeConn)
+		}
 		ac.client.Close()
+	} else if log.DefaultLogger.GetLogLevel() >= log.DEBUG {
+		log.DefaultLogger.Debugf("[stream] [http] [connpool] destroy stream, returning connection to pool, Connection = %d, closed = %v, closeConn = %v",
+			ac.client.ConnID(), ac.closed, ac.closeConn)
 	}
 	ac.pool.onStreamDestroy(ac)
 }
 
 func (ac *activeClient) OnResetStream(reason types.StreamResetReason) {
 	ac.pool.onStreamReset(ac, reason)
-	if reason == types.StreamLocalReset && !ac.closed {
+	if !ac.closed {
 		if log.DefaultLogger.GetLogLevel() >= log.DEBUG {
-			log.DefaultLogger.Debugf("[stream] [http] stream local reset, blow client away also, Connection = %d",
-				ac.client.ConnID())
+			log.DefaultLogger.Debugf("[stream] [http] [connpool] stream reset, reason = %v, closing connection, Connection = %d",
+				reason, ac.client.ConnID())
 		}
 		ac.closeConn = true
 	}
