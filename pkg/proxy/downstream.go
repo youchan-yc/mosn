@@ -1252,7 +1252,15 @@ func (s *downStream) onUpstreamHeaders(endStream bool) {
 		s.onUpstreamResponseRecvFinished()
 	}
 
-	// todo: insert proxy headers
+	// Inject x-mosn-process-time header: time from receiving client request to receiving upstream app response.
+	// This allows the Client MOSN to extract server-side processing time for latency-based load balancing.
+	if headers != nil {
+		processTimeNs := time.Now().Sub(s.requestInfo.StartTime()).Nanoseconds()
+		if processTimeNs > 0 {
+			headers.Set(MosnProcessTimeHeader, strconv.FormatInt(processTimeNs, 10))
+		}
+	}
+
 	s.appendHeaders(endStream)
 }
 

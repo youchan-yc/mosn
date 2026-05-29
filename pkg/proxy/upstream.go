@@ -23,12 +23,18 @@ import (
 	"sync/atomic"
 	"time"
 
+	"strconv"
+
 	"mosn.io/mosn/pkg/log"
 	"mosn.io/mosn/pkg/protocol"
 	"mosn.io/mosn/pkg/trace"
 	"mosn.io/mosn/pkg/types"
 	"mosn.io/pkg/variable"
 )
+
+// MosnProcessTimeHeader is the response header name used by Server MOSN to report
+// its processing time (nanoseconds) to Client MOSN for latency-based load balancing.
+const MosnProcessTimeHeader = "x-mosn-process-time"
 
 var DefaultStreamResponseWaitTimeout = time.Second * 30
 
@@ -109,6 +115,8 @@ func (r *upstreamRequest) OnDestroyStream() {}
 func (r *upstreamRequest) endStream() {
 	upstreamResponseDurationNs := time.Now().Sub(r.startTime).Nanoseconds()
 
+	// NOTE: UpstreamRequestTotal is already incremented in connpool (request send time),
+	// so we do NOT increment it here to avoid double-counting.
 	r.host.HostStats().UpstreamRequestDuration.Update(upstreamResponseDurationNs)
 	r.host.HostStats().UpstreamRequestDurationEWMA.Update(upstreamResponseDurationNs)
 	r.host.HostStats().UpstreamRequestDurationTotal.Inc(upstreamResponseDurationNs)
@@ -117,7 +125,35 @@ func (r *upstreamRequest) endStream() {
 	r.host.ClusterInfo().Stats().UpstreamRequestDurationEWMA.Update(upstreamResponseDurationNs)
 	r.host.ClusterInfo().Stats().UpstreamRequestDurationTotal.Inc(upstreamResponseDurationNs)
 
-	// todo: record upstream process time in request info
+	// Extract server-reported processing time from response header and update ServerReported metrics.
+	// This reflects the actual server-side processing time without network transmission overhead.
+	if serverProcessTime := r.getServerReportedLatency(); serverProcessTime > 0 {
+		r.host.HostStats().UpstreamServerReportedDuration.Update(serverProcessTime)
+		r.host.HostStats().UpstreamServerReportedDurationEWMA.Update(serverProcessTime)
+		r.host.HostStats().UpstreamServerReportedDurationTotal.Inc(serverProcessTime)
+
+		r.host.ClusterInfo().Stats().UpstreamServerReportedDuration.Update(serverProcessTime)
+		r.host.ClusterInfo().Stats().UpstreamServerReportedDurationEWMA.Update(serverProcessTime)
+		r.host.ClusterInfo().Stats().UpstreamServerReportedDurationTotal.Inc(serverProcessTime)
+	}
+}
+
+// getServerReportedLatency extracts the server-reported processing time (nanoseconds)
+// from the x-mosn-process-time response header injected by Server MOSN.
+// Returns 0 if the header is absent, unparseable, or non-positive.
+func (r *upstreamRequest) getServerReportedLatency() int64 {
+	if r.downStream.downstreamRespHeaders == nil {
+		return 0
+	}
+	val, ok := r.downStream.downstreamRespHeaders.Get(MosnProcessTimeHeader)
+	if !ok || val == "" {
+		return 0
+	}
+	ns, err := strconv.ParseInt(val, 10, 64)
+	if err != nil || ns <= 0 {
+		return 0
+	}
+	return ns
 }
 
 // types.StreamReceiveListener
@@ -161,6 +197,12 @@ func (r *upstreamRequest) OnReceive(ctx context.Context, headers types.HeaderMap
 		return
 	}
 
+	// Set response headers BEFORE endStream() so that getServerReportedLatency()
+	// can extract x-mosn-process-time from downstreamRespHeaders.
+	r.downStream.downstreamRespHeaders = headers
+	r.downStream.downstreamRespDataBuf = data
+	r.downStream.downstreamRespTrailers = trailers
+
 	r.endStream()
 
 	if code, err := protocol.MappingHeaderStatusCode(r.downStream.context, r.protocol, headers); err == nil {
@@ -168,9 +210,6 @@ func (r *upstreamRequest) OnReceive(ctx context.Context, headers types.HeaderMap
 	}
 
 	r.downStream.requestInfo.SetResponseReceivedDuration(time.Now())
-	r.downStream.downstreamRespHeaders = headers
-	r.downStream.downstreamRespDataBuf = data
-	r.downStream.downstreamRespTrailers = trailers
 
 	if r.streamResponse && data != nil {
 		r.downStream.streamResponseCloser.Store(StreamResponseCloser(func(err error) { // TODO: new interface
