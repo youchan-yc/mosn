@@ -1257,7 +1257,16 @@ func (s *downStream) onUpstreamHeaders(endStream bool) {
 	if headers != nil {
 		processTimeNs := time.Now().Sub(s.requestInfo.StartTime()).Nanoseconds()
 		if processTimeNs > 0 {
-			headers.Set(MosnProcessTimeHeader, strconv.FormatInt(processTimeNs, 10))
+			func() {
+				defer func() {
+					if r := recover(); r != nil {
+						// 耗时header可以注入失败，debug日志记录即可，不影响请求转发
+						log.Proxy.Debugf(s.context, "[proxy] [downstream] skip injecting %s header: %v",
+							MosnProcessTimeHeader, r)
+					}
+				}()
+				headers.Set(MosnProcessTimeHeader, strconv.FormatInt(processTimeNs, 10))
+			}()
 		}
 	}
 
