@@ -29,6 +29,14 @@ type LbConfig struct {
 	// The larger the active request bias is, the more aggressively active requests
 	// will lower the effective weight when all host weights are not equal.
 	ActiveRequestBias float64 `json:"active_request_bias,omitempty"`
+
+	// LatencySource selects the data source for latency measurement.
+	// Used by LatencyBased load balancer.
+	// Supported values:
+	//   - "histogram" (default): UpstreamRequestDuration.Mean(), windowed by global Sample config (default: 1028 samples)
+	//   - "ewma": UpstreamRequestDurationEWMA.Rate(), exponentially weighted moving average, time-decay sensitive
+	//   - "counter": UpstreamRequestDurationTotal / UpstreamRequestTotal, all-time average, no window
+	LatencySource string `json:"latency_source,omitempty"`
 }
 
 type HashPolicy struct {

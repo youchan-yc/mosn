@@ -282,6 +282,9 @@ type HostStats struct {
 	UpstreamRequestDuration                        metrics.Histogram
 	UpstreamRequestDurationEWMA                    metrics.EWMA
 	UpstreamRequestDurationTotal                   metrics.Counter
+	UpstreamServerReportedDuration                 metrics.Histogram
+	UpstreamServerReportedDurationEWMA             metrics.EWMA
+	UpstreamServerReportedDurationTotal            metrics.Counter
 	UpstreamResponseSuccess                        metrics.Counter
 	UpstreamResponseFailed                         metrics.Counter
 	UpstreamResponseTotalEWMA                      metrics.EWMA
@@ -315,6 +318,9 @@ type ClusterStats struct {
 	UpstreamRequestDuration                        metrics.Histogram
 	UpstreamRequestDurationEWMA                    metrics.EWMA
 	UpstreamRequestDurationTotal                   metrics.Counter
+	UpstreamServerReportedDuration                 metrics.Histogram
+	UpstreamServerReportedDurationEWMA             metrics.EWMA
+	UpstreamServerReportedDurationTotal            metrics.Counter
 	UpstreamResponseSuccess                        metrics.Counter
 	UpstreamResponseFailed                         metrics.Counter
 	LBSubSetsFallBack                              metrics.Counter
