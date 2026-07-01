@@ -243,22 +243,8 @@ func newClientStreamConnection(ctx context.Context, connection types.ClientConne
 	}
 	// Per-connection buffer size for responses' reading.
 	// This also limits the maximum header size, default 8192.
-	maxResponseHeaderSize := 0
-	if pgc, err := variable.Get(ctx, types.VariableProxyGeneralConfig); err == nil && pgc != nil {
-		if extendConfig, ok := pgc.(map[api.ProtocolName]interface{}); ok {
-			if http1Config, ok := extendConfig[protocol.HTTP1]; ok {
-				if config, ok := http1Config.(map[string]interface{}); ok {
-					if v, ok := config["max_header_size"]; ok {
-						// json.Unmarshal stores float64 for JSON numbers in the interface{}
-						// see doc: https://golang.org/pkg/encoding/json/#Unmarshal
-						if fv, ok := v.(float64); ok {
-							maxResponseHeaderSize = int(fv)
-						}
-					}
-				}
-			}
-		}
-	}
+	config := parseStreamConfig(ctx)
+	maxResponseHeaderSize := config.MaxHeaderSize
 	if maxResponseHeaderSize <= 0 {
 		maxResponseHeaderSize = defaultMaxHeaderSize
 	}
@@ -686,12 +672,42 @@ var defaultStreamConfig = StreamConfig{
 	MaxRequestBodySize: 0,
 }
 
+// drmStreamConfig holds the config pushed by DRM.
+// It takes the highest priority in parseStreamConfig, overriding JSON extend_config.
+// Only effective when drmLoaded is true.
+var (
+	drmStreamConfig StreamConfig
+	drmLoaded       bool
+)
+
 // SetDefaultStreamConfig can change the default config for http.
 // Call this function before mosn service start.
 // DONOT call it when mosn is serving.
 func SetDefaultStreamConfig(c StreamConfig) {
 	defaultStreamConfig.MaxHeaderSize = c.MaxHeaderSize
 	defaultStreamConfig.MaxRequestBodySize = c.MaxRequestBodySize
+}
+
+// SetDRMStreamConfig sets the config pushed by DRM and marks it as loaded.
+// In parseStreamConfig, DRM config has the highest priority and can override
+// JSON extend_config values. It also updates defaultStreamConfig for backward compatibility.
+func SetDRMStreamConfig(c StreamConfig) {
+	drmStreamConfig = c
+	drmLoaded = true
+	SetDefaultStreamConfig(c)
+}
+
+// ResetDRMStreamConfig clears the DRM config and marks it as unloaded.
+// After reset, parseStreamConfig will fall back to JSON extend_config values.
+func ResetDRMStreamConfig() {
+	drmStreamConfig = StreamConfig{}
+	drmLoaded = false
+}
+
+// GetDRMStreamConfig returns the current DRM config and whether it has been loaded.
+// This is primarily used for testing and diagnostics.
+func GetDRMStreamConfig() (StreamConfig, bool) {
+	return drmStreamConfig, drmLoaded
 }
 
 func streamConfigHandler(v interface{}) interface{} {
@@ -719,7 +735,7 @@ func streamConfigHandler(v interface{}) interface{} {
 
 func parseStreamConfig(ctx context.Context) StreamConfig {
 	streamConfig := defaultStreamConfig
-	// get extend config from ctx
+	// 1. get extend config from ctx (cached at proxy factory creation time)
 	if pgc, err := variable.Get(ctx, types.VariableProxyGeneralConfig); err == nil && pgc != nil {
 		if extendConfig, ok := pgc.(map[api.ProtocolName]interface{}); ok {
 			if http1Config, ok := extendConfig[protocol.HTTP1]; ok {
@@ -727,6 +743,15 @@ func parseStreamConfig(ctx context.Context) StreamConfig {
 					streamConfig = cfg
 				}
 			}
+		}
+	}
+	// 2. DRM pushed config has the highest priority, override JSON extend_config
+	if drmLoaded {
+		if drmStreamConfig.MaxHeaderSize > 0 {
+			streamConfig.MaxHeaderSize = drmStreamConfig.MaxHeaderSize
+		}
+		if drmStreamConfig.MaxRequestBodySize >= 0 {
+			streamConfig.MaxRequestBodySize = drmStreamConfig.MaxRequestBodySize
 		}
 	}
 	return streamConfig
