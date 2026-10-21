@@ -220,8 +220,10 @@ func (p *connPool) onConnectionEvent(client *activeClient, event api.ConnectionE
 
 		for i, c := range p.availableClients {
 			if c == client {
-				p.availableClients[i] = nil
-				p.availableClients = append(p.availableClients[:i], p.availableClients[i+1:]...)
+				n := len(p.availableClients)
+				copy(p.availableClients[i:], p.availableClients[i+1:])
+				p.availableClients[n-1] = nil // clear tail slot to avoid dangling pointer
+				p.availableClients = p.availableClients[:n-1]
 				break
 			}
 		}

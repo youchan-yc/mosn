@@ -128,8 +128,6 @@ func (f *StreamConnFactory) ProtocolMatch(context context.Context, prot string, 
 // types.StreamConnection
 // types.StreamConnectionEventListener
 type streamConnection struct {
-	context context.Context
-
 	conn              api.Connection
 	connEventListener api.ConnectionEventListener
 	resetReason       types.StreamResetReason
@@ -231,7 +229,6 @@ func newClientStreamConnection(ctx context.Context, connection types.ClientConne
 
 	csc := &clientStreamConnection{
 		streamConnection: streamConnection{
-			context:    ctx,
 			conn:       connection,
 			bufChan:    make(chan buffer.IoBuffer),
 			endRead:    make(chan struct{}),
@@ -282,7 +279,7 @@ func (conn *clientStreamConnection) serve() {
 		err := s.response.Header.Read(conn.br)
 		if err != nil {
 			if s != nil {
-				log.Proxy.Errorf(s.connection.context, "[stream] [http] client stream connection wait response header error: %s", err)
+				log.Proxy.Errorf(s.ctx, "[stream] [http] client stream connection wait response header error: %s", err)
 				reason := conn.resetReason
 				if reason == "" {
 					reason = types.StreamRemoteReset
@@ -295,7 +292,7 @@ func (conn *clientStreamConnection) serve() {
 			// Read the next response according to http://www.w3.org/Protocols/rfc2616/rfc2616-sec8.html .
 			if err = s.response.Header.Read(conn.br); err != nil {
 				if s != nil {
-					log.Proxy.Errorf(s.connection.context, "[stream] [http] client stream connection wait response header error(StatusCode=StatusContinue): %s", err)
+					log.Proxy.Errorf(s.ctx, "[stream] [http] client stream connection wait response header error(StatusCode=StatusContinue): %s", err)
 					reason := conn.resetReason
 					if reason == "" {
 						reason = types.StreamRemoteReset
@@ -415,7 +412,7 @@ func (conn *clientStreamConnection) handleBlockedResponse() {
 	if !(s.response.SkipBody || mustSkipContentLength(&s.response.Header)) {
 		err := s.response.ReadBody(conn.br, 0)
 		if err != nil {
-			log.Proxy.Errorf(s.connection.context, "[stream] [http] client stream connection wait response error: %s", err)
+			log.Proxy.Errorf(s.ctx, "[stream] [http] client stream connection wait response error: %s", err)
 			reason := conn.resetReason
 			if reason == "" {
 				reason = types.StreamRemoteReset
@@ -774,7 +771,6 @@ func newServerStreamConnection(ctx context.Context, connection api.Connection,
 	callbacks types.ServerStreamConnectionEventListener) types.ServerStreamConnection {
 	ssc := &serverStreamConnection{
 		streamConnection: streamConnection{
-			context:    ctx,
 			conn:       connection,
 			bufChan:    make(chan buffer.IoBuffer),
 			endRead:    make(chan struct{}),

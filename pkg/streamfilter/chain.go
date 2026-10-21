@@ -102,14 +102,27 @@ func GetDefaultStreamFilterChain() *DefaultStreamFilterChainImpl {
 
 // PutStreamFilterChain reset DefaultStreamFilterChainImpl and return it to pool.
 func PutStreamFilterChain(chain *DefaultStreamFilterChainImpl) {
+	// Clear all slots in the backing arrays (including those beyond len)
+	// before returning to pool. Without this, old filter/handler pointers
+	// in tail slots (len <= index < cap) survive and are scanned by GC,
+	// keeping old request objects (downStream, proxy, connections) reachable.
+	for i := range chain.senderFilters {
+		chain.senderFilters[i] = nil
+	}
 	chain.senderFilters = chain.senderFilters[:0]
 	chain.senderFiltersPhase = chain.senderFiltersPhase[:0]
 	chain.senderFiltersIndex = 0
 
+	for i := range chain.receiverFilters {
+		chain.receiverFilters[i] = nil
+	}
 	chain.receiverFilters = chain.receiverFilters[:0]
 	chain.receiverFiltersPhase = chain.receiverFiltersPhase[:0]
 	chain.receiverFiltersIndex = 0
 
+	for i := range chain.streamAccessLogs {
+		chain.streamAccessLogs[i] = nil
+	}
 	chain.streamAccessLogs = chain.streamAccessLogs[:0]
 
 	streamFilterChainPool.Put(chain)
